@@ -1,0 +1,64 @@
+name: Build RMX2020 Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      DEFCONFIG: RMX2020_defconfig
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Build Tools
+        run: |
+          sudo apt update
+          sudo apt install -y bc bison flex libssl-dev libelf-dev build-essential lz4 git python3 curl dwarves cpio gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth=1 -b sixteen-qpr2 https://github.com/sarthakroy2002/kernel_realme_RMX2020.git source
+          
+      - name: Download Clang (r5110928)
+        run: |
+          mkdir -p clang
+          curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r5110928.tar.gz
+          tar -xf clang-r5110928.tar.gz -C clang
+
+      - name: Setup KernelSU & SUSFS
+        run: |
+          cd source
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
+          curl -Lo susfs.patch https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/refs/heads/mainline/Patches/Patch/susfs_patch_to_4.14.patch
+          patch -p1 < susfs.patch
+          # Ensure KSU and SUSFS are toggled on in the config
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/$DEFCONFIG
+
+      - name: Build
+        run: |
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+          cd source
+          make O=out ARCH=arm64 $DEFCONFIG
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            LLVM=1 LLVM_IAS=1 Image.gz-dtb
+
+      - name: Package AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git
+          cp source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          cd AnyKernel3
+          sed -i 's|block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot|block=/dev/block/by-name/boot|' anykernel.sh
+          zip -r9 ../RMX2020-KSU-Kernel.zip *
+
+      - name: Upload Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: KSU-Kernel-RMX2020
+          path: RMX2020-KSU-Kernel.zip
