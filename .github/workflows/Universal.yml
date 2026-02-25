@@ -1,0 +1,148 @@
+name: Compile Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      clang_version:
+        description: Select clang version
+        required: true
+        type: choice
+        options:
+          # Android 11
+          - clang-r353983c1
+          - clang-r377782b
+          - clang-r383902b
+          
+          # Android 14
+          - clang-r450784e
+          - clang-r475365b
+          - clang-r487747c
+          - clang-r498229b
+          - clang-r510928
+          
+          # Newer
+          - clang-3289846
+          - clang-r547379
+          - clang-r563880
+          - clang-r563880c
+          - clang-r574158
+          - clang-stable
+          
+      kernel_source:
+        description: Kernel Source Repo URL
+        required: true
+        type: string
+        
+      kernel_branch:
+        description: Kernel Branch
+        required: true
+        type: string
+        
+      defconfig_name:
+        description: Defconfig name
+        required: true
+        type: string
+        
+      ksu_type:
+        description: KernelSU Version
+        required: true
+        type: choice
+        options:
+          - None
+          - KernelSU-by-xx
+          - ReSukiSU-with-susfs
+
+jobs:
+  Kernel_CI:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup SWAP
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 16
+          
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y bc bison flex libssl-dev libelf-dev libdw-dev \
+          build-essential lz4 git python3 curl dwarves cpio gcc-aarch64-linux-gnu
+          
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth=1 -b ${{ inputs.kernel_branch }} ${{ inputs.kernel_source }} kernel
+
+      - name: Download AOSP Clang
+        run: |
+          mkdir -p toolchains/${{ inputs.clang_version }}
+          cd toolchains
+
+          A11=("clang-r353983c1" "clang-r377782b" "clang-r383902b")
+          A14=("clang-r450784e" "clang-r475365b" "clang-r487747c" "clang-r498229b" "clang-r510928")
+
+          if [[ " ${A11[@]} " =~ " ${{ inputs.clang_version }} " ]]; then
+            curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-11.0.0_r3/${{ inputs.clang_version }}.tar.gz
+          elif [[ " ${A14[@]} " =~ " ${{ inputs.clang_version }} " ]]; then
+            curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-14.0.0_r33/${{ inputs.clang_version }}.tar.gz
+          else
+            curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/${{ inputs.clang_version }}.tar.gz
+          fi
+
+          tar -xf "${{ inputs.clang_version }}.tar.gz" -C ${{ inputs.clang_version }}
+
+      - name: Compile Kernel
+        run: |
+          CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ inputs.clang_version }}/bin"
+          export PATH="${CLANG_ROOT}:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          cd kernel
+          touch .scmversion
+          
+          make O=out ${{ inputs.defconfig_name }}
+          make -j$(nproc) O=out
+
+      - name: Package AnyKernel3
+        run: |
+          git clone https://github.com/Kernel-SU/AnyKernel3.git
+          
+          KERNEL_DIR="kernel/out/arch/arm64/boot"
+          
+          # Auto detect kernel image
+          if [ -f "$KERNEL_DIR/Image.gz-dtb" ]; then
+            cp "$KERNEL_DIR/Image.gz-dtb" AnyKernel3/Image
+            cp "$KERNEL_DIR/Image.gz-dtb" ./Image
+          elif [ -f "$KERNEL_DIR/Image.gz" ]; then
+            cp "$KERNEL_DIR/Image.gz" AnyKernel3/Image
+            cp "$KERNEL_DIR/Image.gz" ./Image
+          elif [ -f "$KERNEL_DIR/Image" ]; then
+            cp "$KERNEL_DIR/Image" AnyKernel3/Image
+            cp "$KERNEL_DIR/Image" ./Image
+          else
+            echo "❌ No kernel image found!"
+            exit 1
+          fi
+
+          # Auto detect dtbo.img
+          if [ -f "$KERNEL_DIR/dtbo.img" ]; then
+            echo "✅ dtbo.img found, adding to AnyKernel3"
+            cp "$KERNEL_DIR/dtbo.img" AnyKernel3/dtbo.img
+          else
+            echo "ℹ️ No dtbo.img generated, skipping"
+          fi
+
+          cd AnyKernel3
+          ZIP_NAME="Kernel_$(date -u +"%Y%m%d_%H%M")"
+          zip -r9 ../"${ZIP_NAME}.zip" * -x .git
+
+      - name: Create Release
+        run: |
+          ZIP_FILE=$(ls *.zip)
+          REL_NAME="Kernel_${{ inputs.kernel_branch }}_$(date -u +"%Y%m%d_%H%M")"
+          gh release create "$REL_NAME" --title "$REL_NAME" --notes "" "${ZIP_FILE}"
