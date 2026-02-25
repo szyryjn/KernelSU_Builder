@@ -52,7 +52,7 @@ jobs:
           git curl zip unzip \
           gcc-aarch64-linux-gnu \
           gcc-arm-linux-gnueabi \
-          python
+          python3
 
       - name: Clone Kernel Source
         run: |
