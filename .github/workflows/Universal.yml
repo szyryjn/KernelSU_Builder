@@ -50,7 +50,7 @@ jobs:
             libelf-dev \
             build-essential \
             git curl zip unzip \
-            python3 python-is-python2
+            python3 
 
       - name: Clone Kernel Source
         run: |
