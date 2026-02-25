@@ -45,23 +45,26 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
-          bc bison flex \
-          libssl-dev \
-          libelf-dev \
-          build-essential \
-          git curl zip unzip \
-          gcc-aarch64-linux-gnu \
-          gcc-arm-linux-gnueabi \
-          python3
+            bc bison flex \
+            libssl-dev \
+            libelf-dev \
+            build-essential \
+            git curl zip unzip \
+            python3 python-is-python2
 
       - name: Clone Kernel Source
         run: |
-          git clone --depth=1 -b ${{ inputs.kernel_branch }} ${{ inputs.kernel_source }} kernel
+          git clone --depth=1 -b ${{ inputs.kernel_branch }} \
+          ${{ inputs.kernel_source }} kernel
 
-      # ✅ CLANG 11 TOOLCHAIN (Azure)
       - name: Clone Clang 11 (Azure)
         run: |
           git clone --depth=1 https://github.com/Panchajanya1999/azure-clang.git clang-llvm
+
+      - name: Clone GCC Toolchains (arter97)
+        run: |
+          git clone --depth=1 https://github.com/arter97/arm64-gcc.git gcc64
+          git clone --depth=1 https://github.com/arter97/arm32-gcc.git gcc32
 
       - name: Compile Kernel
         run: |
@@ -73,12 +76,16 @@ jobs:
           export CLANG_PATH=$GITHUB_WORKSPACE/clang-llvm
           export PATH=$CLANG_PATH/bin:$PATH
 
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export GCC64_PATH=$GITHUB_WORKSPACE/gcc64
+          export GCC32_PATH=$GITHUB_WORKSPACE/gcc32
+          export PATH=$GCC64_PATH/bin:$GCC32_PATH/bin:$PATH
 
           cd kernel
 
-          # KSU untouched
+          # libufdt (needed for dtbo)
+          git clone https://android.googlesource.com/platform/system/libufdt scripts/ufdt/libufdt
+
+          # KSU logic (untouched)
           case "${{ inputs.ksu_type }}" in
             "KernelSU-by-xx")
               curl -LSs https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh | bash -s master
@@ -93,12 +100,17 @@ jobs:
           make O=out ${{ inputs.defconfig_name }}
 
           make -j$(nproc) O=out \
-              CC=clang \
-              LD=ld.lld \
-              AR=llvm-ar \
-              NM=llvm-nm \
-              OBJCOPY=llvm-objcopy \
-              STRIP=llvm-strip
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-none-elf- \
+            CROSS_COMPILE_ARM32=arm-none-eabi- \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip
 
       - name: Package AnyKernel
         run: |
