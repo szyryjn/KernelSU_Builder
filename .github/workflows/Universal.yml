@@ -13,20 +13,6 @@ on:
         required: true
         type: string
 
-      defconfig_name:
-        description: Defconfig name
-        required: true
-        type: string
-
-      ksu_type:
-        description: KernelSU Version
-        required: true
-        type: choice
-        options:
-          - None
-          - KernelSU-by-xx
-          - ReSukiSU-with-susfs
-
 jobs:
   Kernel_CI:
     runs-on: ubuntu-latest
@@ -50,67 +36,18 @@ jobs:
             libelf-dev \
             build-essential \
             git curl zip unzip \
-            python3 
+            python3
 
       - name: Clone Kernel Source
         run: |
           git clone --depth=1 -b ${{ inputs.kernel_branch }} \
           ${{ inputs.kernel_source }} kernel
 
-      - name: Clone Clang 11 (Azure)
+      - name: Run Kernel Build Script
         run: |
-          git clone --depth=1 https://github.com/Panchajanya1999/azure-clang.git clang-llvm
-
-      - name: Clone GCC Toolchains (arter97)
-        run: |
-          git clone --depth=1 https://github.com/arter97/arm64-gcc.git gcc64
-          git clone --depth=1 https://github.com/arter97/arm32-gcc.git gcc32
-
-      - name: Compile Kernel
-        run: |
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export KBUILD_BUILD_USER="CI"
-          export KBUILD_BUILD_HOST="GitHub"
-
-          export CLANG_PATH=$GITHUB_WORKSPACE/clang-llvm
-          export PATH=$CLANG_PATH/bin:$PATH
-
-          export GCC64_PATH=$GITHUB_WORKSPACE/gcc64
-          export GCC32_PATH=$GITHUB_WORKSPACE/gcc32
-          export PATH=$GCC64_PATH/bin:$GCC32_PATH/bin:$PATH
-
           cd kernel
-
-          # libufdt (needed for dtbo)
-          git clone https://android.googlesource.com/platform/system/libufdt scripts/ufdt/libufdt
-
-          # KSU logic (untouched)
-          case "${{ inputs.ksu_type }}" in
-            "KernelSU-by-xx")
-              curl -LSs https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh | bash -s master
-              ;;
-            "ReSukiSU-with-susfs")
-              curl -LSs https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh | bash -s main
-              ;;
-          esac
-
-          touch .scmversion
-
-          make O=out ${{ inputs.defconfig_name }}
-
-          make -j$(nproc) O=out \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-none-elf- \
-            CROSS_COMPILE_ARM32=arm-none-eabi- \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip
+          chmod +x kernel.sh
+          ./kernel.sh
 
       - name: Package AnyKernel
         run: |
