@@ -31,7 +31,7 @@ on:
         type: string
         
       defconfig_name:
-        description: Defconfig name (example: mt6769_defconfig)
+        description: Defconfig Name
         required: true
         type: string
         
