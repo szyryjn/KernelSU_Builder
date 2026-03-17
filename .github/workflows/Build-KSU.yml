@@ -87,9 +87,7 @@ jobs:
         run: |
           mkdir -p toolchains/${{ inputs.clang_version }}
           cd toolchains
-
           OLD_TAGS=("clang-r450784e" "clang-r475365b" "clang-r487747c" "clang-r498229b" "clang-r510928")
-
           if [[ " ${OLD_TAGS[@]} " =~ " ${{ inputs.clang_version }} " ]]; then
             echo "Downloading from android-14.0.0_r33"
             curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-14.0.0_r33/${{ inputs.clang_version }}.tar.gz
@@ -97,7 +95,6 @@ jobs:
             echo "Downloading from android16-qpr2-release"
             curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/${{ inputs.clang_version }}.tar.gz
           fi
-
           tar -xf "${{ inputs.clang_version }}.tar.gz" -C ${{ inputs.clang_version }}
 
       - name: Compile Kernel
@@ -119,9 +116,7 @@ jobs:
           export OBJDUMP="${CLANG_ROOT}/llvm-objdump"
           export STRIP="${CLANG_ROOT}/llvm-strip"
           export CROSS_COMPILE=aarch64-linux-gnu-
-
           cd kernel
-
           case "${{ inputs.ksu_type }}" in
             "KernelSU-by-xx")
               curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s master
@@ -130,7 +125,6 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
               ;;
           esac
-
           touch ./.scmversion
           
           if [[ "${{ inputs.ksu_type }}" == *susfs ]]; then
@@ -161,22 +155,25 @@ jobs:
           if [ -f $BOOT_DIR/Image.gz-dtb ]; then
               echo "Found Image.gz-dtb, using it."
               cp $BOOT_DIR/Image.gz-dtb AnyKernel3/Image.gz-dtb
-              cp $BOOT_DIR/Image.gz-dtb ./Image
           elif [ -f $BOOT_DIR/Image.gz ]; then
               echo "Image.gz-dtb not found, using Image.gz."
               cp $BOOT_DIR/Image.gz AnyKernel3/Image.gz
-              cp $BOOT_DIR/Image.gz ./Image
           fi
 
           # Optional DTBO handling
           if [ -f $BOOT_DIR/dtbo.img ]; then
               echo "dtbo.img found, adding to AnyKernel."
               cp $BOOT_DIR/dtbo.img AnyKernel3/dtbo.img
-          else
-              echo "dtbo.img not found, skipping."
           fi
 
           cd AnyKernel3
           sed -i "s|ksu_supported=false|ksu_supported=true|" anykernel.sh
           zip -r9 ../"${ZIP_NAME}.zip" * -x .git
+
+      - name: Upload Kernel Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Build-${{ inputs.ksu_type }}
+          path: "./*.zip"
+          retention-days: 7
           
